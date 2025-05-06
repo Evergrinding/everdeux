@@ -1,90 +1,124 @@
 # download_models.py
-from huggingface_hub import hf_hub_download
+from huggingface_hub import hf_hub_download, snapshot_download
 import os
 
-def download_and_get_info(repo_id, filename, model_type_label="Model"):
+def download_model_files(repo_id, filenames, model_type_label="Model"):
     """
-    Downloads a model from Hugging Face Hub and prints its local path
-    and the snapshot directory name.
+    Downloads specified model files from a Hugging Face Hub repository.
+    If filenames is a list, it downloads each file.
+    If filenames is a single string, it downloads that one file.
+    It prints local paths and snapshot information.
     """
-    print(f"--- Preparing {model_type_label}: {repo_id}/{filename} ---")
+    print(f"--- Preparing {model_type_label}: {repo_id} ---")
     
-    # Define the standard Hugging Face cache directory
     cache_dir = os.path.expanduser("~/.cache/huggingface/hub")
+    os.makedirs(cache_dir, exist_ok=True) # Ensure cache_dir exists
+
+    if not isinstance(filenames, list):
+        filenames = [filenames] # Make it a list if it's a single string
+
+    first_file_relative_path = None
+
+    for i, filename in enumerate(filenames):
+        print(f"Processing file: {filename} ({i+1}/{len(filenames)})")
+        try:
+            downloaded_path_abs = hf_hub_download(
+                repo_id=repo_id,
+                filename=filename,
+                cache_dir=cache_dir,
+                local_dir_use_symlinks=False
+            )
+            
+            print(f"  [{model_type_label} - {filename}] File downloaded/cached successfully at (absolute host path):")
+            print(f"    {downloaded_path_abs}")
+
+            if downloaded_path_abs.startswith(cache_dir):
+                relative_path_in_hub = os.path.relpath(downloaded_path_abs, cache_dir)
+                if i == 0: # Store the relative path of the first file
+                    first_file_relative_path = relative_path_in_hub
+                
+                if i == 0: # Print detailed info only for the first file to avoid redundancy
+                    print(f"  [{model_type_label}] Path relative to HF cache hub ('{cache_dir}'):")
+                    print(f"    {relative_path_in_hub}")
+                    
+                    snapshot_dir_abs = os.path.dirname(downloaded_path_abs)
+                    snapshot_dir_name = os.path.basename(snapshot_dir_abs)
+                    model_repo_cache_folder_name = os.path.basename(os.path.dirname(snapshot_dir_abs))
+                    
+                    print(f"  [{model_type_label}] Snapshot directory name (hash code):")
+                    print(f"    {snapshot_dir_name}")
+                    print(f"  [{model_type_label}] Model's cache folder name:")
+                    print(f"    {model_repo_cache_folder_name}")
+                    print(f"  To use in run.sh, the path to the *first file* inside container (if mounting hub to /hf_cache) would be like:")
+                    print(f"    /hf_cache/{relative_path_in_hub}") # This is the path to the current file
+            
+        except Exception as e:
+            print(f"Error downloading {model_type_label} {repo_id}/{filename}: {e}")
+            import traceback
+            traceback.print_exc()
+            if i == 0: return None # If first file fails, abort for this model
     
-    try:
-        downloaded_path_abs = hf_hub_download(
-            repo_id=repo_id,
-            filename=filename,
-            cache_dir=cache_dir,
-            local_dir_use_symlinks=False  # Recommended for compatibility
-        )
-        
-        print(f"[{model_type_label}] File downloaded/cached successfully at (absolute host path):")
-        print(f"  {downloaded_path_abs}")
+    print(f"--- Finished processing {model_type_label}: {repo_id} ---")
+    return first_file_relative_path
 
-        # Determine the path relative to the 'hub' directory
-        # This helps in constructing paths for Docker if mounting the 'hub' directory
-        if downloaded_path_abs.startswith(cache_dir):
-            relative_path_in_hub = os.path.relpath(downloaded_path_abs, cache_dir)
-            print(f"[{model_type_label}] Path relative to HF cache hub ('{cache_dir}'):")
-            print(f"  {relative_path_in_hub}")
-
-            # Extract the snapshot directory (the "hash code" you mentioned)
-            # The structure is usually: models--<user>--<repo>/snapshots/<hash>/<filename>
-            # So, we want the parent of the filename, which is the snapshot directory.
-            snapshot_dir_abs = os.path.dirname(downloaded_path_abs)
-            snapshot_dir_name = os.path.basename(snapshot_dir_abs)
-            
-            # The path part before the snapshot would be like models--<user>--<repo>/snapshots
-            model_repo_cache_folder_name = os.path.basename(os.path.dirname(snapshot_dir_abs)) # e.g. models--bartowski--Qwen_Qwen3-4B-GGUF
-            
-            print(f"[{model_type_label}] Snapshot directory name (hash code):")
-            print(f"  {snapshot_dir_name}")
-            print(f"[{model_type_label}] Model's cache folder name:")
-            print(f"  {model_repo_cache_folder_name}")
-            print(f"To use in run.sh, the path inside container (if mounting hub to /hf_cache) would be like:")
-            print(f"  /hf_cache/{model_repo_cache_folder_name}/snapshots/{snapshot_dir_name}/{filename}")
-            print("-" * 30)
-            return relative_path_in_hub # Return the path relative to the hub for easy use
-            
-    except Exception as e:
-        print(f"Error downloading {model_type_label} {repo_id}/{filename}: {e}")
-        import traceback
-        traceback.print_exc()
-        print("-" * 30)
-        return None
 
 if __name__ == "__main__":
     print("Starting model download process...\n")
 
     # --- Configure your models here ---
-    target_model_repo_id = "bartowski/Qwen_Qwen3-4B-GGUF"
-    target_model_filename = "Qwen_Qwen3-4B-Q4_K_M.gguf"
 
+    # Small Target Model (example)
+    target_model_repo_id = "bartowski/Qwen_Qwen3-4B-GGUF"
+    target_model_filename = "Qwen_Qwen3-4B-Q4_K_M.gguf" 
+    # download_model_files(target_model_repo_id, target_model_filename, "Small Target Model")
+
+    # Small Draft Model (example)
     draft_model_repo_id = "bartowski/Qwen_Qwen3-0.6B-GGUF"
     draft_model_filename = "Qwen_Qwen3-0.6B-Q4_K_M.gguf"
-    
-    # For your large models (example, replace with actual IDs and filenames)
-    # target_large_model_repo_id = "Qwen/Qwen2-235B-A22B-GGUF" # Fictional, replace
-    # target_large_model_filename = "qwen2-235b-a22b.q4_k_m.gguf" # Fictional, replace
-    # draft_large_model_repo_id = "Qwen/Qwen2-30B-A3B-GGUF" # Fictional, replace
-    # draft_large_model_filename = "qwen2-30b-a3b.q4_k_m.gguf" # Fictional, replace
+    # download_model_files(draft_model_repo_id, draft_model_filename, "Small Draft Model")
 
-    # Download Target Model
-    target_rel_path = download_and_get_info(target_model_repo_id, target_model_filename, "Target Model")
-    
-    # Download Draft Model
-    draft_rel_path = download_and_get_info(draft_model_repo_id, draft_model_filename, "Draft Model")
+    # --- Large Target Model (Split) ---
+    large_target_model_repo_id = "lmstudio-community/Qwen3-235B-A22B-GGUF"
+    large_target_model_filenames = [
+        "Qwen3-235B-A22B-Q4_K_M-00001-of-00004.gguf",
+        "Qwen3-235B-A22B-Q4_K_M-00002-of-00004.gguf",
+        "Qwen3-235B-A22B-Q4_K_M-00003-of-00004.gguf",
+        "Qwen3-235B-A22B-Q4_K_M-00004-of-00004.gguf"
+    ]
+    # This will download all parts and return the relative path of the FIRST file.
+    first_large_target_file_rel_path = download_model_files(
+        large_target_model_repo_id, 
+        large_target_model_filenames, 
+        "Large Target Model (Split)"
+    )
 
-    # Example for large models (uncomment and configure when ready)
-    # download_and_get_info(target_large_model_repo_id, target_large_model_filename, "Large Target Model")
-    # download_and_get_info(draft_large_model_repo_id, draft_large_model_filename, "Large Draft Model")
+    # --- Large Draft Model (Assuming it's a single file, adjust if split) ---
+    # Example:
+    # large_draft_model_repo_id = "NousResearch/Hermes-2-Pro-Llama-3-70B-GGUF" 
+    # large_draft_model_filename = "Hermes-2-Pro-Llama-3-70B.Q4_K_M.gguf"
+    # first_large_draft_file_rel_path = download_model_files(
+    #     large_draft_model_repo_id,
+    #     large_draft_model_filename,
+    #     "Large Draft Model"
+    # )
+    # For now, let's assume your 30B draft model is a single file for the example:
+    large_draft_model_repo_id = "bartowski/Qwen_Qwen3-30B-A3B-GGUF" # Replace with actual
+    large_draft_model_filename = "Qwen_Qwen3-30B-A3B-Q6_K.gguf" # Replace with actual
+    first_large_draft_file_rel_path = download_model_files(
+        large_draft_model_repo_id,
+        large_draft_model_filename,
+        "Large Draft Model"
+    )
+
 
     print("\nDownload process finished.")
-    print("Please use the 'Path relative to HF cache hub' or construct the path using the snapshot hash for your run.sh script.")
-    if target_rel_path:
-        print(f"\nExample for TARGET_MODEL_PATH in run.sh (if mounting hub to /hf_cache): /hf_cache/{target_rel_path}")
-    if draft_rel_path:
-        print(f"Example for DRAFT_MODEL_PATH in run.sh (if mounting hub to /hf_cache): /hf_cache/{draft_rel_path}")
+    print("Please use the 'Path relative to HF cache hub' for the *first file* of each model for your run.sh script.")
+    
+    if first_large_target_file_rel_path:
+        print(f"\nExample for TARGET_MODEL_PATH in run.sh (if mounting hub to /hf_cache):")
+        print(f"  /hf_cache/{first_large_target_file_rel_path}")
+    
+    if first_large_draft_file_rel_path:
+        print(f"Example for DRAFT_MODEL_PATH in run.sh (if mounting hub to /hf_cache):")
+        print(f"  /hf_cache/{first_large_draft_file_rel_path}")
 
